@@ -16,6 +16,7 @@ eval_interval = 500
 device = "cuda" if torch.cuda.is_available() else 'cpu'
 n_embd = 32 # no of embedding dimention
 n_heads = 4
+dropout = 0.2
 torch.manual_seed(1337)
 # -------------------------------------
 
@@ -75,6 +76,7 @@ class Head(nn.Module):
         self.query = nn.Linear(n_embd, head_size, bias = False)
         self.value = nn.Linear(n_embd, head_size, bias = False)
         self.register_buffer('tril', torch.tril(torch.ones(block_size,block_size)) )
+        self.dropout = nn.Dropout(dropout) 
 
     def forward(self,x):
         B, T, C = x.shape
@@ -85,6 +87,7 @@ class Head(nn.Module):
         wei = q @ k.transpose(-2, -1)* self.head_size**-0.5 # (B, T, head_size) @ (B, head_size, T) --> (B,T,T)
         wei = wei.masked_fill(self.tril[:T, :T] == 0, float('-inf')) #(B,T,T)
         wei = F.softmax(wei, dim =-1 ) #(B,T,T)
+        wei = self.dropout(wei) 
         # perform weighted aggregation of values
         v = self.value(x) #(B, T, head_size)
         out = wei @ v # (B,T,T) @ (B,T,head_size) ==> (B, T, head_size)
@@ -97,10 +100,11 @@ class MultiheadAttenion(nn.Module):
         super().__init__()
         self.heads = nn.ModuleList([Head(head_size) for _ in range(num_heads)])
         self.proj = nn.Linear(n_embd, n_embd) # projection layer back into Residual pathway
+        self.dropout = nn.Dropout(dropout) 
 
     def forward(self, x):
         out = torch.cat( [h(x) for h in self.heads], dim = -1) # concatenate in channel dimention
-        out = self.proj(out)
+        out = self.dropout(self.proj(out))
         return out
 
 # class implementation for feed forward network 
@@ -110,7 +114,8 @@ class FeedForward(nn.Module):
         self.net = nn.Sequential(
             nn.Linear(n_embd, 4*n_embd), # from the transformer paper
             nn.ReLU(),
-            nn.Linear(4*n_embd, n_embd) # projection layer back into Residual pathway
+            nn.Linear(4*n_embd, n_embd), # projection layer back into Residual pathway
+            nn.Dropout(dropout), # adding droip outs 
         )
     
     def forward(self, x):
