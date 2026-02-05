@@ -16,6 +16,7 @@ eval_interval = 500
 device = "cuda" if torch.cuda.is_available() else 'cpu'
 n_embd = 32 # no of embedding dimention
 head_size = 32
+num_heads = 4
 torch.manual_seed(1337)
 # -------------------------------------
 
@@ -89,7 +90,19 @@ class Head(nn.Module):
         out = wei @ v # (B,T,T) @ (B,T,head_size) ==> (B, T, head_size)
         return out
 
-# biagram language model 
+# class implemetnation fo multihead attention 
+
+class MultiheadAttenion(nn.Module):
+    def __init__(self, num_heads, head_size):
+        super().__init__()
+        self.heads = nn.ModuleList([Head(head_size) for _ in range(num_heads)])
+
+    def forward(self, x):
+        return torch.cat( [h(x) for h in self.heads], dim = -1) # concatenate in channel dimention
+
+#
+
+# transformer language model, biagram sampling
 class TransformerLanguageModel(nn.Module):
     def __init__(self):
         super().__init__()
@@ -97,7 +110,8 @@ class TransformerLanguageModel(nn.Module):
         # nn.Embedding -> A simple lookup table that stores embeddings of a fixed dictionary and size.
         self.token_embedding_table = nn.Embedding(vocab_size, n_embd)
         self.postion_embedding_table = nn.Embedding(block_size, n_embd)
-        self.sa_head = Head(n_embd)
+        #self.sa_head = Head(n_embd)
+        self.sa_heads = MultiheadAttenion(num_heads, n_embd//num_heads) # 4 heads of 8head size 
         self.lm_head = nn.Linear(n_embd, vocab_size)
 
     def forward(self, idx,targets=None):
@@ -106,7 +120,7 @@ class TransformerLanguageModel(nn.Module):
         token_embeddings = self.token_embedding_table(idx) # (B,T,n_embd)
         position_embeddings = self.postion_embedding_table(torch.arange(T, device=device)) # (T, n_embd)
         x = token_embeddings + position_embeddings # (B, T, n_embd) + (B, T, n_embd) -> (B,T,n_embd)
-        x = self.sa_head(x) # (B, T, head_size) # here head_size = n_embd
+        x = self.sa_heads(x) # (B, T, head_size) # here head_size = n_embd
         logits = self.lm_head(x) # (B, T, vocab_size)
 
         if targets is None:
