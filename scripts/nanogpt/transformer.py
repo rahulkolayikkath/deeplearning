@@ -71,12 +71,15 @@ class TransformerLanguageModel(nn.Module):
         # each token directly reads off the logits of the next token from a look up table
         # nn.Embedding -> A simple lookup table that stores embeddings of a fixed dictionary and size.
         self.token_embedding_table = nn.Embedding(vocab_size, n_embd)
+        self.postion_embedding_table = nn.Embedding(block_size, n_embd)
         self.lm_head = nn.Linear(n_embd, vocab_size)
 
     def forward(self, idx,targets=None):
         B,T = idx.shape
         # idx and targets are of shape (B,T)
-        x = self.token_embedding_table(idx) # (B,T,n_embd)
+        token_embeddings = self.token_embedding_table(idx) # (B,T,n_embd)
+        position_embeddings = self.postion_embedding_table(torch.arange(T, device=device)) # (T, n_embd)
+        x = token_embeddings + position_embeddings # (B, T, n_embd) + (B, T, n_embd) -> (B,T,n_embd)
         logits = self.lm_head(x) # (B, T, vocab_size)
 
         if targets is None:
@@ -84,7 +87,7 @@ class TransformerLanguageModel(nn.Module):
         else:
             B,T,C = logits.shape
             # pytorch cross entropy expects second dimention as the channel
-            logits = logits.view(B*T , C)
+            logits = logits.view(B*T, C)
             targets = targets.view(B*T)
             loss = F.cross_entropy(logits, targets)
         return logits, loss
@@ -92,8 +95,10 @@ class TransformerLanguageModel(nn.Module):
     def generate(self, idx, max_new_tokens):
         # idx is B,T array of indices in the current context
         for _ in range(max_new_tokens):
+            # crop the idx to always be block size 
+            idx_cond = idx[:, -block_size:]
             # get the predictions 
-            logits, loss = self(idx) # (B, T, C) # self here runs the def forward 
+            logits, loss = self(idx_cond) # (B, T, C) # self here runs the def forward 
             # get predictions for the last time step 
             logits = logits[:, -1, :] #(B,C) pluck the last time step
             # apply soft max to get the probabilities 
