@@ -9,12 +9,13 @@ import torch.nn.functional as F
 # hyperparameters 
 batch_size = 32
 block_size = 8
-max_iterations = 3000
-learning_rate = 1e-2
+max_iterations = 5000
+learning_rate = 1e-3
 eval_iters = 200
-eval_interval = 300 
+eval_interval = 500 
 device = "cuda" if torch.cuda.is_available() else 'cpu'
 n_embd = 32 # no of embedding dimention
+head_size = 32
 torch.manual_seed(1337)
 # -------------------------------------
 
@@ -64,6 +65,30 @@ def get_batch(split):
     x, y = x.to(device), y.to(device) # move batch to device
     return x,y
 
+# class implementation for self attention head 
+
+class Head(nn.Module):
+    def __init__(self, head_size):
+        super().__init__()
+        self.key = nn.Linear(n_embd, head_size, bias = False)
+        self.query = nn.Linear(n_embd, head_size, bias = False)
+        self.value = nn.Linear(n_embd, head_size, bias = False)
+        self.register_buffer('tril', torch.tril(torch.ones(block_size,block_size)) )
+
+    def forward(self,x):
+        B, T, C = x.shape
+        # k,q,v
+        k = self.key(x) #(B, T, head_size)
+        q = self.query(x) #(B, T, head_size)
+        # compute attention scores ('affinities')
+        wei = q @ k.transpose(-2, -1)* head_size**-0.5 # (B, T, head_size) @ (B, head_size, T) --> (B,T,T)
+        wei = wei.masked_fill(self.tril[:T, :T] == 0, float('-inf')) #(B,T,T)
+        wei = F.softmax(wei, dim =-1 ) #(B,T,T)
+        # perform weighted aggregation of values
+        v = self.value(x) #(B, T, head_size)
+        out = wei @ v # (B,T,T) @ (B,T,head_size) ==> (B, T, head_size)
+        return out
+
 # biagram language model 
 class TransformerLanguageModel(nn.Module):
     def __init__(self):
@@ -72,6 +97,7 @@ class TransformerLanguageModel(nn.Module):
         # nn.Embedding -> A simple lookup table that stores embeddings of a fixed dictionary and size.
         self.token_embedding_table = nn.Embedding(vocab_size, n_embd)
         self.postion_embedding_table = nn.Embedding(block_size, n_embd)
+        self.sa_head = Head(n_embd)
         self.lm_head = nn.Linear(n_embd, vocab_size)
 
     def forward(self, idx,targets=None):
@@ -80,6 +106,7 @@ class TransformerLanguageModel(nn.Module):
         token_embeddings = self.token_embedding_table(idx) # (B,T,n_embd)
         position_embeddings = self.postion_embedding_table(torch.arange(T, device=device)) # (T, n_embd)
         x = token_embeddings + position_embeddings # (B, T, n_embd) + (B, T, n_embd) -> (B,T,n_embd)
+        x = self.sa_head(x) # (B, T, head_size) # here head_size = n_embd
         logits = self.lm_head(x) # (B, T, vocab_size)
 
         if targets is None:
