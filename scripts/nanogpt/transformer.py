@@ -125,11 +125,13 @@ class Block(nn.Module):
         head_size  = n_embd // n_heads
         self.sa_heads = MultiheadAttenion(n_heads, head_size)
         self.ffwd = FeedForward(n_embd)
+        self.ln1 = nn.LayerNorm(n_embd) # layer norm 1 applied before attention
+        self.ln2 = nn.LayerNorm(n_embd) # layer norm 2 applied before ffw 
 
     def forward(self, x):
         # residual connections--> x = x + computation
-        x = x + self.sa_heads(x) # (B, T, head_size) # here head_size = n_embd
-        x = x + self.ffwd(x) # (B, T, n_embd)
+        x = x + self.sa_heads(self.ln1(x)) # (B, T, head_size) # here head_size = n_embd
+        x = x + self.ffwd(self.ln2(x)) # (B, T, n_embd)
         return x
     
 # transformer language model, biagram sampling
@@ -148,6 +150,7 @@ class TransformerLanguageModel(nn.Module):
             Block(n_embd, n_heads),
             Block(n_embd, n_heads),
             Block(n_embd, n_heads),
+            nn.LayerNorm(n_embd), #added right before the computation that project to vocab-size
         )
         self.lm_head = nn.Linear(n_embd, vocab_size)
 
