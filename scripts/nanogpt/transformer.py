@@ -100,8 +100,18 @@ class MultiheadAttenion(nn.Module):
     def forward(self, x):
         return torch.cat( [h(x) for h in self.heads], dim = -1) # concatenate in channel dimention
 
-#
-
+# class implementation for feed forward network 
+class FeedForward(nn.Module):
+    def __init__(self, fan_in, fan_out):
+        super().__init__()
+        self.net = nn.Sequential(
+            nn.Linear(fan_in, fan_out),
+            nn.ReLU(),
+        )
+    
+    def forward(self, x):
+        return self.net(x)
+    
 # transformer language model, biagram sampling
 class TransformerLanguageModel(nn.Module):
     def __init__(self):
@@ -112,6 +122,7 @@ class TransformerLanguageModel(nn.Module):
         self.postion_embedding_table = nn.Embedding(block_size, n_embd)
         #self.sa_head = Head(n_embd)
         self.sa_heads = MultiheadAttenion(num_heads, n_embd//num_heads) # 4 heads of 8head size 
+        self.ffwd = FeedForward(n_embd, n_embd) # add computation after attention
         self.lm_head = nn.Linear(n_embd, vocab_size)
 
     def forward(self, idx,targets=None):
@@ -121,6 +132,7 @@ class TransformerLanguageModel(nn.Module):
         position_embeddings = self.postion_embedding_table(torch.arange(T, device=device)) # (T, n_embd)
         x = token_embeddings + position_embeddings # (B, T, n_embd) + (B, T, n_embd) -> (B,T,n_embd)
         x = self.sa_heads(x) # (B, T, head_size) # here head_size = n_embd
+        x = self.ffwd(x) # (B, T, n_embd)
         logits = self.lm_head(x) # (B, T, vocab_size)
 
         if targets is None:
